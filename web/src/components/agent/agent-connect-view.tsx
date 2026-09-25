@@ -70,6 +70,7 @@ export function AgentConnectView({
             setApplyingId("");
         }
     };
+    const installCommand = `irm ${typeof window === "undefined" ? "" : window.location.origin}/canvas-agent/install.ps1 | iex`;
     const steps = [{ title: t("agent.connect.pluginTitle"), text: t("agent.connect.pluginText") }, { title: t("agent.connect.directTitle"), text: t("agent.connect.directText"), command: "npx -y @basketikun/canvas-agent@latest" }];
     const statusText = connectError ? t("agent.status.failed") : connected ? activity : enabled ? t("agent.status.connecting") : t("agent.status.disconnected");
     const statusColor = connectError ? "#dc2626" : connected ? "#16a34a" : enabled ? "#d97706" : theme.node.muted;
@@ -185,6 +186,20 @@ export function AgentConnectView({
                         ) : null}
                     </div>
                 </div>
+                {!connected ? (
+                    <div className="rounded-lg border p-3" style={{ borderColor: theme.node.stroke }}>
+                        <div className="text-sm font-medium leading-5">{t("agent.connect.installTitle")}</div>
+                        <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>{t("agent.connect.installText")}</div>
+                        <div className="mt-2 flex items-center gap-2 rounded-md border bg-transparent px-2 py-1.5" style={{ borderColor: theme.node.stroke, color: theme.node.text }}>
+                            <span className="shrink-0 text-[11px]" style={{ color: theme.node.muted }}>{t("agent.connect.installCommand")}</span>
+                            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[11px] leading-5">{installCommand}</code>
+                            <Tooltip title={t("agent.connect.copyCommand")}>
+                                <Button size="small" type="text" className="!h-6 !w-6 !min-w-6" icon={<Copy className="size-3.5" />} onClick={() => copyCommand(installCommand)} />
+                            </Tooltip>
+                        </div>
+                        <div className="mt-2 text-[11px] leading-5" style={{ color: theme.node.muted }}>{t("agent.connect.installNotice")}</div>
+                    </div>
+                ) : null}
                 <div className="rounded-lg border p-3" style={{ borderColor: theme.node.stroke }}>
                     <div className="text-sm font-medium leading-5">{t("agent.connect.providerTitle")}</div>
                     <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>{t("agent.connect.providerDescription")}</div>

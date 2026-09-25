@@ -73,6 +73,15 @@ export async function generateCodexSkillDraft(emit: AgentEmit, cwd: string, inpu
     return await queued;
 }
 
+/** 关闭并重建 Codex app-server，让 ~/.codex 里的新配置生效。 */
+export async function restartCodexApp(emit: AgentEmit) {
+    codexApp?.shutdown();
+    codexApp = null;
+    codexAppStart = null;
+    loadedThreadId = "";
+    return await getCodexApp(emit);
+}
+
 /** 中断当前线程正在执行的 Codex turn。 */
 export async function interruptCodexTurn(threadId?: string) {
     if (!codexApp) return false;

@@ -108,6 +108,12 @@ export class CodexAppClient {
         return client;
     }
 
+    /** 结束 app-server 子进程，供切换渠道等需要重新读取本地配置的场景使用。 */
+    shutdown() {
+        logger.info("Stopping Codex app-server", { pid: this.child.pid });
+        this.child.kill();
+    }
+
     /** 创建新的 Codex 线程。 */
     async startThread(cwd?: string, permissionMode: AgentPermissionMode = "request", preheat = false) {
         if (preheat) this.pendingPreheatThreadStarts += 1;

@@ -4,7 +4,8 @@ import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 
 import { runClaudeTurn } from "../agent/claude.js";
-import { archiveCodexThread, CodexSkillLookupError, configureCodexSkill, generateCodexSkillDraft, interruptCodexTurn, isRecoverableThreadError, listCodexModels, listCodexSkills, listCodexThreads, readCodexThread, resolveCodexApproval, resolveCodexSkill, resumeCodexThread, runCodexTurn, startCodexThread, summarizeCodexThread } from "../agent/codex.js";
+import { archiveCodexThread, CodexSkillLookupError, configureCodexSkill, generateCodexSkillDraft, interruptCodexTurn, isRecoverableThreadError, listCodexModels, listCodexSkills, listCodexThreads, readCodexThread, resolveCodexApproval, resolveCodexSkill, restartCodexApp, resumeCodexThread, runCodexTurn, startCodexThread, summarizeCodexThread } from "../agent/codex.js";
+import { applyCodexProvider, listCodexProviders } from "../agent/providers.js";
 import type { CodexReasoningEffort, CodexSkillSelector } from "../agent/codex-protocol.js";
 import { messageMetadataStore } from "../agent/message-metadata.js";
 import type { AgentAttachment, AgentPermissionMode } from "../agent/types.js";
@@ -175,6 +176,19 @@ export function startHttpServer() {
         res.json({ ok: true, workspace, conversation: session.conversationStateSnapshot });
     });
     app.get("/agent/codex/models", route(async (_req, res) => res.json({ ok: true, ...(await listCodexModels(emit)) })));
+    app.get("/agent/codex/providers", route(async (_req, res) => res.json({ ok: true, ...(await listCodexProviders()) })));
+    app.post("/agent/codex/providers/apply", codexMutation(async (req, res) => {
+        if (session.codexBusy) return res.status(409).json({ ok: false, code: "CONVERSATION_BUSY", error: "Codex 正在运行，请等当前任务结束后再切换渠道", state: session.conversationStateSnapshot });
+        const providerId = String(req.body?.id || "");
+        if (!providerId) return res.status(400).json({ ok: false, error: "请选择要使用的 Codex 渠道" });
+        const clientId = String(req.body?.clientId || "");
+        const applied = await applyCodexProvider(providerId);
+        await restartCodexApp(emit);
+        session.beginConversation({ sourceClientId: clientId || undefined });
+        setActiveThread("", { emptyThread: true, draftThread: true, sourceClientId: clientId }, true);
+        void prepareDraftThread(clientId, permissionMode(req.body?.permissionMode));
+        res.json({ ok: true, applied, ...(await listCodexProviders()) });
+    }));
     app.get("/agent/codex/skills", route(async (req, res) => {
         const workspace = ensureSiteWorkspace(config);
         const result = await listCodexSkills(emit, workspace.workspacePath, String(req.query.forceReload || "") === "1");

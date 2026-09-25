@@ -1,6 +1,6 @@
 import i18n from "@/i18n";
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
-import type { AgentReasoningEffort } from "@/stores/use-agent-store";
+import type { AgentPermissionMode, AgentReasoningEffort } from "@/stores/use-agent-store";
 
 type AgentConfigResponse = { ok?: boolean; protocolVersion?: number; url?: string; token?: string; hasToken?: boolean };
 const AGENT_MESSAGE_ASSET_PATTERN = /^agent-asset:([a-f0-9]{64})\/([a-f0-9]{64}\.(?:gif|jpe?g|png|webp))$/;
@@ -90,6 +90,17 @@ export function resolveAgentMessageAssetUrl(endpoint: string, token: string, val
     if (!match) return value.startsWith("agent-asset:") ? "" : value;
     const baseUrl = endpoint.trim().replace(/\/$/, "");
     return baseUrl && token ? `${baseUrl}/agent/message-assets/${match[1]}/${match[2]}?token=${encodeURIComponent(token)}` : "";
+}
+
+export type AgentCodexProvider = { id: string; name: string; model: string; baseUrl: string; current: boolean };
+export type AgentProvidersResponse = { ok?: boolean; providers?: AgentCodexProvider[]; configPath?: string; applied?: { name: string; model: string; backupPath: string } };
+
+export function fetchCodexProviders(endpoint: string, token: string) {
+    return fetchAgentJson<AgentProvidersResponse>(endpoint, token, "/agent/codex/providers");
+}
+
+export function applyCodexProvider(endpoint: string, token: string, id: string, input: { clientId: string; permissionMode: AgentPermissionMode }) {
+    return fetchAgentJson<AgentProvidersResponse>(endpoint, token, "/agent/codex/providers/apply", jsonPost({ id, ...input }), AGENT_LONG_REQUEST_TIMEOUT_MS);
 }
 
 export function fetchCodexSkills(endpoint: string, token: string, forceReload = false) {

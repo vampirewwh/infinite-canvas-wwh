@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.21.0 - 2026-09-25
+
++ [新增] Agent 面板新增「Codex 渠道」：从 CC Switch 读取本机保存的 Codex 渠道并可直接切换，切换后画布新建对话并改用该渠道；切换前自动备份 ~/.codex/config.toml 和 auth.json 到 ~/.infinite-canvas/codex-config-backups。
+
 ## v0.20.0 - 2026-09-25
 
 + [修复] 本地 Agent 请求增加超时（普通请求 60 秒，新建和恢复会话、生成 Skill 草稿 10 分钟），响应丢失或 MCP 启动异常时不再让 Agent 面板卡在读取历史、输入框无法输入。

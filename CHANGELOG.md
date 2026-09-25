@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.22.0 - 2026-09-25
+
++ [调整] 画布自带的 Codex 改用独立配置目录（~/.infinite-canvas/codex-home），在面板里切换渠道只影响画布，不再改写用户平时使用的 ~/.codex 配置；首次启动时以现有 ~/.codex 配置作为模板。
+
 ## v0.21.0 - 2026-09-25
 
 + [新增] Agent 面板新增「Codex 渠道」：从 CC Switch 读取本机保存的 Codex 渠道并可直接切换，切换后画布新建对话并改用该渠道；切换前自动备份 ~/.codex/config.toml 和 auth.json 到 ~/.infinite-canvas/codex-config-backups。

@@ -2,11 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { CONFIG_DIR } from "../config.js";
+import { CODEX_HOME_DIR, CONFIG_DIR } from "../config.js";
 import { logger } from "../utils/logger.js";
 
 const CC_SWITCH_DB = path.join(os.homedir(), ".cc-switch", "cc-switch.db");
-const CODEX_DIR = path.join(os.homedir(), ".codex");
+/** 用户平时使用的 Codex 配置目录，只在首次初始化时作为模板。 */
+const USER_CODEX_DIR = path.join(os.homedir(), ".codex");
+const CODEX_DIR = CODEX_HOME_DIR;
 const CODEX_CONFIG = path.join(CODEX_DIR, "config.toml");
 const CODEX_AUTH = path.join(CODEX_DIR, "auth.json");
 const BACKUP_DIR = path.join(CONFIG_DIR, "codex-config-backups");
@@ -16,8 +18,16 @@ const PROVIDER_KEYS = ["model", "model_provider", "model_reasoning_effort", "dis
 export type CodexProviderSummary = { id: string; name: string; model: string; baseUrl: string; current: boolean };
 type RawProvider = CodexProviderSummary & { config: string; auth: Record<string, unknown>; key: string };
 
+/** 初始化画布自带的 Codex 配置目录，首次使用时以用户现有配置作为模板。 */
+export function ensureCodexHome() {
+    fs.mkdirSync(CODEX_DIR, { recursive: true, mode: 0o700 });
+    copyIfMissing(path.join(USER_CODEX_DIR, "config.toml"), CODEX_CONFIG);
+    copyIfMissing(path.join(USER_CODEX_DIR, "auth.json"), CODEX_AUTH);
+}
+
 /** 读取 CC Switch 中保存的 Codex 渠道，不返回任何密钥。 */
 export async function listCodexProviders() {
+    ensureCodexHome();
     const providers = await readProviders();
     return {
         providers: providers.map(({ id, name, model, baseUrl, current }): CodexProviderSummary => ({ id, name, model, baseUrl, current })),
@@ -25,20 +35,20 @@ export async function listCodexProviders() {
     };
 }
 
-/** 将指定渠道写入 ~/.codex，并在写入前备份当前配置。 */
+/** 将指定渠道写入画布自带的 Codex 配置目录，并在写入前备份当前配置。 */
 export async function applyCodexProvider(id: string) {
+    ensureCodexHome();
     const providers = await readProviders();
     const target = providers.find((item) => item.id === id);
     if (!target) throw new Error("没有找到这个 Codex 渠道，请在 CC Switch 中确认后重试");
     const backupPath = backupCodexConfig();
-    fs.mkdirSync(CODEX_DIR, { recursive: true });
     fs.writeFileSync(CODEX_CONFIG, mergeProviderConfig(readText(CODEX_CONFIG), target.config), { mode: 0o600 });
     fs.writeFileSync(CODEX_AUTH, `${JSON.stringify(target.auth, null, 2)}\n`, { mode: 0o600 });
     logger.info("Applied Codex provider", { provider: target.name, model: target.model, backupPath });
     return { name: target.name, model: target.model, backupPath };
 }
 
-/** 读取 CC Switch 数据库中的 Codex 渠道，并标出当前 ~/.codex 正在使用的那一个。 */
+/** 读取 CC Switch 数据库中的 Codex 渠道，并标出画布自己的 Codex 正在使用的那一个。 */
 async function readProviders(): Promise<RawProvider[]> {
     if (!fs.existsSync(CC_SWITCH_DB)) throw new Error("没有找到 CC Switch 的配置，请先安装并打开一次 CC Switch");
     const { DatabaseSync } = await import("node:sqlite").catch(() => {
@@ -192,6 +202,13 @@ function backupCodexConfig() {
         if (fs.existsSync(file)) fs.copyFileSync(file, path.join(dir, path.basename(file)));
     });
     return dir;
+}
+
+/** 目标文件不存在时，从用户现有配置复制一份作为模板。 */
+function copyIfMissing(source: string, target: string) {
+    if (fs.existsSync(target) || !fs.existsSync(source)) return;
+    fs.copyFileSync(source, target);
+    fs.chmodSync(target, 0o600);
 }
 
 /** 读取文本文件，读取失败时返回空字符串。 */

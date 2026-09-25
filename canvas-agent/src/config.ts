@@ -6,6 +6,8 @@ import path from "node:path";
 export const DEFAULT_PORT = 17371;
 export const CONFIG_DIR = path.join(os.homedir(), ".infinite-canvas");
 export const CONFIG_FILE = path.join(CONFIG_DIR, "canvas-agent.json");
+/** 画布自带的 Codex 配置目录，与用户平时使用的 ~/.codex 完全隔离。 */
+export const CODEX_HOME_DIR = path.join(CONFIG_DIR, "codex-home");
 export const VERSION = readPackageVersion();
 export const AGENT_PROMPT = fs.readFileSync(new URL("../agent-instructions.md", import.meta.url), "utf8");
 const initializedWorkspaces = new Set<string>();

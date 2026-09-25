@@ -4,6 +4,10 @@ import type { AgentReasoningEffort } from "@/stores/use-agent-store";
 
 type AgentConfigResponse = { ok?: boolean; protocolVersion?: number; url?: string; token?: string; hasToken?: boolean };
 const AGENT_MESSAGE_ASSET_PATTERN = /^agent-asset:([a-f0-9]{64})\/([a-f0-9]{64}\.(?:gif|jpe?g|png|webp))$/;
+/** 普通请求超时；响应丢失时按请求失败处理，避免调用方一直等待。 */
+export const AGENT_REQUEST_TIMEOUT_MS = 60_000;
+/** 需要等待 MCP 启动完成或 Codex 生成 Skill 草稿的请求超时。 */
+export const AGENT_LONG_REQUEST_TIMEOUT_MS = 10 * 60_000;
 
 export class AgentApiError<T = unknown> extends Error {
     constructor(readonly status: number, readonly response: T & { code?: string; error?: string; msg?: string }) {
@@ -47,6 +51,7 @@ export async function postState(endpoint: string, token: string, clientId: strin
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify(snapshot ? { ...snapshot, hasCanvas: true } : { hasCanvas: false }),
+            signal: AbortSignal.timeout(AGENT_REQUEST_TIMEOUT_MS),
         });
         return response.ok;
     } catch {
@@ -56,7 +61,7 @@ export async function postState(endpoint: string, token: string, clientId: strin
 
 export async function activateAgentClient(endpoint: string, token: string, clientId: string) {
     try {
-        await fetch(`${endpoint}/canvas/activate?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { method: "POST" });
+        await fetch(`${endpoint}/canvas/activate?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { method: "POST", signal: AbortSignal.timeout(AGENT_REQUEST_TIMEOUT_MS) });
     } catch {}
 }
 
@@ -100,7 +105,7 @@ export function createCodexSkill(endpoint: string, token: string, input: AgentSk
 }
 
 export function createCodexSkillDraft(endpoint: string, token: string, input: AgentSkillDraftInput) {
-    return fetchAgentJson<AgentSkillDraftResponse>(endpoint, token, "/agent/codex/skills/draft", jsonPost(input));
+    return fetchAgentJson<AgentSkillDraftResponse>(endpoint, token, "/agent/codex/skills/draft", jsonPost(input), AGENT_LONG_REQUEST_TIMEOUT_MS);
 }
 
 export function updateCodexSkill(endpoint: string, token: string, name: string, input: AgentSkillInput) {
@@ -115,9 +120,15 @@ export function setCodexSkillEnabled(endpoint: string, token: string, skill: Pic
     return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(skill.name)}/enabled`, jsonPost({ ...skill, enabled }));
 }
 
-export async function fetchAgentJson<T>(endpoint: string, token: string, path: string, init?: RequestInit) {
+export async function fetchAgentJson<T>(endpoint: string, token: string, path: string, init?: RequestInit, timeoutMs = AGENT_REQUEST_TIMEOUT_MS) {
     const url = `${endpoint}${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
-    const res = await fetch(url, init);
+    let res: Response;
+    try {
+        res = await fetch(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(timeoutMs) });
+    } catch (error) {
+        if (error instanceof DOMException && error.name === "TimeoutError") throw new Error(i18n.t("agent.state.requestTimeout"));
+        throw error;
+    }
     const data = (await res.json().catch(() => ({}))) as T & { error?: string; msg?: string };
     if (!res.ok) throw new AgentApiError(res.status, data);
     return data;

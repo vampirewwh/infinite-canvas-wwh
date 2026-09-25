@@ -22,6 +22,10 @@ type PendingTurnStart = { threadId: string; prompt: string; messageText?: string
 const canvasAgentMcp = canvasAgentMcpCommand();
 const require = createRequire(import.meta.url);
 const STREAM_UPDATE_INTERVAL_MS = 40;
+/** 普通 app-server 请求超时；响应丢失时按请求失败处理，避免调用方永久等待。 */
+const REQUEST_TIMEOUT_MS = 60_000;
+/** 需要等待 MCP 启动完成的请求超时，与生图请求保持同一量级。 */
+const MCP_STARTUP_TIMEOUT_MS = 10 * 60_000;
 const supplementalItemTypes = new Set(["agent_message", "reasoning", "plan", "mcp_tool_call", "command_execution", "file_change", "dynamic_tool_call", "collab_tool_call", "web_search", "image_view", "image_generation", "context_compaction"]);
 const SKILL_DRAFT_INSTRUCTIONS = "你只负责根据已提供的对话或画布快照生成可编辑的 Codex Skill 草稿。不要调用任何工具，不要执行命令，不要读取文件，不要访问网络，不要修改任何状态。严格按 outputSchema 返回结果，并排除凭证、密钥、Token、本地路径、临时错误、调试日志和一次性结果。";
 
@@ -109,7 +113,7 @@ export class CodexAppClient {
         if (preheat) this.pendingPreheatThreadStarts += 1;
         let threadId = "";
         try {
-            const { thread } = await this.request("thread/start", { ...threadSettings(permissionMode), ...(cwd ? { cwd } : {}), threadSource: "user" });
+            const { thread } = await this.request("thread/start", { ...threadSettings(permissionMode), ...(cwd ? { cwd } : {}), threadSource: "user" }, false, MCP_STARTUP_TIMEOUT_MS);
             if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
             threadId = thread.id;
             if (preheat) {
@@ -138,7 +142,7 @@ export class CodexAppClient {
         if (preheat) this.pendingPreheatThreadStarts += 1;
         try {
             if (preheat) this.preheatingThreadIds.add(threadId);
-            const { thread } = await this.request("thread/resume", { threadId, ...threadSettings(permissionMode), ...(cwd ? { cwd } : {}) });
+            const { thread } = await this.request("thread/resume", { threadId, ...threadSettings(permissionMode), ...(cwd ? { cwd } : {}) }, false, MCP_STARTUP_TIMEOUT_MS);
             if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
             if (preheat) await this.completeMcpPreheat(thread.id);
             return thread;
@@ -150,7 +154,7 @@ export class CodexAppClient {
 
     /** 以 app-server 的权威 MCP 清单响应作为预热完成边界。 */
     private async completeMcpPreheat(threadId: string) {
-        const result = await this.request("mcpServerStatus/list", { threadId, limit: 100, detail: "toolsAndAuthOnly" });
+        const result = await this.request("mcpServerStatus/list", { threadId, limit: 100, detail: "toolsAndAuthOnly" }, false, MCP_STARTUP_TIMEOUT_MS);
         this.emit("agent_bootstrap", { type: "mcp.complete", phase: "preheat", threadId, services: result.data.map(({ name, authStatus }) => ({ name, authStatus })) });
     }
 
@@ -297,7 +301,7 @@ export class CodexAppClient {
         const pendingStart = Symbol();
         this.pendingSilentThreadStarts.add(pendingStart);
         try {
-            const result = await this.request(method, params, true);
+            const result = await this.request(method, params, true, MCP_STARTUP_TIMEOUT_MS);
             const thread = result.thread;
             if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
             this.silentThreadIds.add(thread.id);
@@ -308,12 +312,23 @@ export class CodexAppClient {
         }
     }
 
-    /** 发送 JSON-RPC 请求并保存待处理 Promise。 */
-    private request<Method extends CodexRequestMethod>(method: Method, params: CodexRequestParams<Method>, silent = false) {
+    /** 发送 JSON-RPC 请求并保存待处理 Promise；超时按请求失败处理。 */
+    private request<Method extends CodexRequestMethod>(method: Method, params: CodexRequestParams<Method>, silent = false, timeoutMs = REQUEST_TIMEOUT_MS) {
         if (this.failing) return Promise.reject(new CodexReportedError(this.failureMessage || "Codex app-server 已停止")) as Promise<CodexRequestResult<Method>>;
         const id = this.nextId++;
         this.write({ id, method, params }, silent);
-        return new Promise<CodexRequestResult<Method>>((resolve, reject) => this.pending.set(id, { resolve: (result) => resolve(result as CodexRequestResult<Method>), reject, silent }));
+        return new Promise<CodexRequestResult<Method>>((resolve, reject) => {
+            const timer = setTimeout(() => {
+                if (!this.pending.delete(id)) return;
+                logger.warn("Codex app-server request timed out", { method, timeoutMs });
+                reject(new Error(`Codex app-server 请求超时：${method}`));
+            }, timeoutMs);
+            this.pending.set(id, {
+                resolve: (result) => (clearTimeout(timer), resolve(result as CodexRequestResult<Method>)),
+                reject: (error) => (clearTimeout(timer), reject(error)),
+                silent,
+            });
+        });
     }
 
     /** 发送无需响应的 JSON-RPC 通知。 */
